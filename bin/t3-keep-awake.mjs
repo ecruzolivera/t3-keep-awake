@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { open } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { release, platform } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -12,10 +11,14 @@ import { runDaemon } from '../lib/daemon.mjs';
 import { AppError, safeError } from '../lib/errors.mjs';
 import { singleInstance, processIdentity, isLive } from '../lib/runtime.mjs';
 import { serviceUnit } from '../lib/service.mjs';
+import { pairingInput } from '../lib/pairing-input.mjs';
+import { install } from '../lib/installer.mjs';
 
 process.umask(0o077);
 const HELP = `t3-keep-awake (Linux, Node >=24)
 
+  install [--server ORIGIN] [--credential-file FILE] [--no-start]
+                         Autodetect T3; guided user installation and activation
   pair --server http://127.0.0.1:PORT --credential-file /private/file
   run [--observe]         Supervise local work (observe never inhibits sleep)
   status                 Show private, redacted daemon status
@@ -23,41 +26,29 @@ const HELP = `t3-keep-awake (Linux, Node >=24)
   service-unit           Print an installable user unit; changes nothing
   help
 
-Pairing input is a raw bootstrap credential or a direct local /pair#token= URL.
-Never pass secrets as arguments. The input file must be owned by you, mode 0600.
+Installation asks you to paste the pairing code without echoing it.
+Never pass codes as arguments. For --credential-file, use an owned mode 0600 file.
 Configuration and credentials use XDG_CONFIG_HOME/t3-keep-awake.
-No command installs or enables a service. 'run' acquires real sleep inhibitors
-unless --observe is supplied. See README for activation and limitations.
+Only 'install' installs a service; it asks before enabling/starting it.
+'run' acquires real sleep inhibitors unless --observe is supplied.
+See README for activation and limitations.
 `;
-
-async function pairingInput(file, server) {
-  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
-  let value;
-  try {
-    const info = await handle.stat();
-    if (!info.isFile() || info.uid !== process.getuid() || (info.mode & 0o077) || info.size > 65536) throw new AppError('permissions', 'Pairing input must be an owned regular file with mode 0600.', true);
-    value = (await handle.readFile('utf8')).trim();
-  } finally { await handle.close(); }
-  if (/^https?:/i.test(value)) {
-    let url;
-    try { url = new URL(value); } catch { throw new AppError('pairing', 'Invalid direct pairing URL.', true); }
-    if (url.origin !== server || url.pathname !== '/pair' || url.search) throw new AppError('pairing', 'Pairing URL must belong to the configured local server; hosted links are not accepted.', true);
-    value = new URLSearchParams(url.hash.slice(1)).get('token') ?? '';
-  }
-  if (!value || /\s/.test(value)) throw new AppError('pairing', 'Pairing input is missing or malformed.', true);
-  return value;
-}
 
 async function main() {
   const { values, positionals } = parseArgs({ options: {
     server: { type: 'string' }, 'credential-file': { type: 'string' }, observe: { type: 'boolean' }, help: { type: 'boolean' },
+    'no-start': { type: 'boolean' }, version: { type: 'boolean' },
   }, allowPositionals: true });
+  if (values.version) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); return; }
   const command = values.help ? 'help' : positionals[0] ?? 'help';
   if (positionals.length > 1) throw new AppError('usage', 'Unexpected arguments; run help.', true);
   if (command === 'help') { console.log(HELP); return; }
+  const allowed = { install: ['server', 'credential-file', 'no-start'], pair: ['server', 'credential-file'], run: ['observe'], diagnose: ['server'], status: [], 'service-unit': [] };
+  for (const key of Object.keys(values)) if (!allowed[command]?.includes(key)) throw new AppError('usage', 'Option is not supported by this command; run help.', true);
   if (platform() !== 'linux' || /microsoft/i.test(release())) throw new AppError('platform', 'Only native Linux is supported; WSL is outside this release.', true);
   const p = paths();
   switch (command) {
+    case 'install': await install({ server: values.server, credentialFile: values['credential-file'], noStart: values['no-start'] }); break;
     case 'pair': {
       if (!values.server || !values['credential-file']) throw new AppError('usage', 'pair requires --server and --credential-file. Run help.', true);
       const server = localServer(values.server);

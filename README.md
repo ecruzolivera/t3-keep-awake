@@ -6,6 +6,81 @@ user service; no T3 fork, database access, desktop plugin, root daemon, or runti
 npm dependencies. Requires native Linux, Node.js 24+, systemd/logind, and T3's
 orchestration protocol **2**. WSL is not supported.
 
+## One-command user installation
+
+The installer is implemented and locally packaged, but this package has **not
+been published to npm**. From this checkout, build and run it with:
+
+```sh
+npm pack
+npx --yes --package=./t3-keep-awake-0.2.2.tgz t3-keep-awake install
+```
+
+After an authorized npm publication, the public command will be:
+
+```sh
+npx t3-keep-awake@latest install
+```
+
+The installer checks existing Node 24+, native Linux, systemd user-session tools,
+logind and a private runtime directory. It uses no sudo and installs no OS
+packages or private Node runtime. It automatically detects your running local T3
+server, guides creation of a read-only pairing code, accepts that code through
+hidden terminal input, and
+reuses a valid existing companion session on later runs. A local authorized
+client does not register an extra T3 Connect host machine. The orchestration read
+grant permits conversation access too; this companion only consumes shell status.
+
+Discovery inspects current-user TCP listening sockets belonging to T3/Node/Bun/
+Electron processes through Linux `/proc`, then validates the public T3 descriptor
+with bounded, unauthenticated HTTP probes. It reads no process arguments,
+environment, credentials, databases or browser caches. A single environment is
+selected automatically; multiple environments produce a numbered choice. On
+reruns a reachable saved endpoint is reused, and discovery can find the paired
+environment at a changed port. If no compatible server is found, start T3 and
+retry. `--server` remains an override for unusual setups such as HTTPS-only
+listeners or restricted `/proc` access; it is not required for normal setup.
+
+It copies the app into immutable, content-addressed releases below
+`$XDG_DATA_HOME/t3-keep-awake/releases` (default `~/.local/share`), installs a
+launcher at `~/.local/bin/t3-keep-awake`, and validates/writes the systemd user unit
+under `$XDG_CONFIG_HOME/systemd/user` (default `~/.config`). Node and app paths
+are absolute and point outside the disposable npx package cache. The unit carries
+the selected XDG paths and a stable path to the system's inhibitor command.
+Configuration, credentials and custom reconnect settings are retained. A private
+`install.json` in the app data directory records the installed paths.
+
+**Starting requires a final confirmation, defaulting to No.** Declining a fresh
+installation leaves the service installed and stopped. On an update, declining
+leaves an already running service on its previous unit/release; the new CLI and
+release are staged. Confirming an update enables/restarts onto the new release.
+Old releases remain available so an active service is never deleted underneath
+its running process. Failures retain files/credentials and report the recovery
+action; they do not silently fall back to root or a broader grant.
+
+After enabling or restarting, the installer automatically checks service startup
+for up to five seconds, reports whether T3 is connected and the inhibitor is held,
+and displays the latest 12 journal messages for that service invocation. If a
+failed service has no invocation ID left, it queries messages since activation.
+It reports failures and an unconfirmed T3 connection explicitly, rather than
+equating an active systemd process with successful monitoring. Tokens and URLs
+are redacted from journal output; malformed journal records are not echoed.
+
+For unattended setup, supply all inputs and explicitly leave it stopped:
+
+```sh
+npx --yes --package=./t3-keep-awake-0.2.2.tgz t3-keep-awake install \
+  --server http://127.0.0.1:PORT --credential-file "$XDG_RUNTIME_DIR/t3-pairing" --no-start
+```
+
+The credential file must be owned and mode `0600`; the installer leaves it for
+you to remove. A noninteractive install never enables/starts a service. Existing
+unmanaged launchers/units are not overwritten; move a conflicting file aside
+explicitly after inspecting it. A manually running supervisor must be stopped
+before installation. The installer does not edit shell startup files; if
+`~/.local/bin` is absent from PATH, it prints the full installed CLI path.
+Changing/removing Node requires rerunning installation to capture its new path.
+
 ## What counts as work
 
 Monitor every local thread in **one explicitly configured loopback environment**,
@@ -36,6 +111,11 @@ subagent may be indistinguishable from a local one and can cause a false hold.
 Remote-only parent waits and app children absent from this local environment
 do not count. Complete remote/native background detection is **not** claimed.
 See [protocol evidence and compatibility](docs/protocol.md).
+An active foreground run waiting on a dev server can also look identical to a
+finite build/test process wait. `awaited` is reporting intent, not proof that a
+process is finite: a dev server incorrectly marked awaited can still hold.
+The [primary-source research](docs/suspend-inhibition-research.md) explains these
+information limits; no perfect dev-server exclusion is claimed.
 
 ## Sleep behavior
 
@@ -56,12 +136,15 @@ systemctl --user stop t3-keep-awake.service
 ```
 
 The app does not acquire shutdown, lid-key, or power-key inhibitors. It does not
-override critical-battery policy or force sleep/shutdown behavior. Privileged
+change critical-battery settings or force sleep/shutdown behavior. A sleep lock
+can interfere with a power manager's emergency suspend if it honors that lock;
+preserving every critical-battery action is not guaranteed. Privileged
 operations or operations explicitly ignoring inhibitors can bypass a sleep lock;
 this is not a guarantee that the machine can never suspend.
 
-The child helper holds its inherited inhibitor only while its stdin lease pipe
-stays open. Supervisor death closes the pipe; helper EOF releases the lock.
+The systemd-inhibit wrapper holds the inhibitor while its child helper runs.
+Supervisor death closes the helper's stdin lease pipe; helper EOF makes it exit,
+then the wrapper exits and closes its inhibitor FD.
 The service additionally uses `KillMode=control-group`. SIGTERM/SIGINT release
 cleanly, and unrecoverable protocol/auth errors release immediately.
 
@@ -78,13 +161,14 @@ Create the portable npm tarball with `npm pack`. Install either the prepared
 tarball or a fresh one into your user prefix:
 
 ```sh
-npm install --global --prefix "$HOME/.local" ./t3-keep-awake-0.1.0.tgz
+npm install --global --prefix "$HOME/.local" ./t3-keep-awake-0.2.2.tgz
 export PATH="$HOME/.local/bin:$PATH"
 t3-keep-awake help
 ```
 
-Installation of this package does not start a daemon, install a unit, or acquire
-an inhibitor. No npm lifecycle scripts are used. Node must remain installed at
+Installing the npm package alone does not start a daemon, install a unit, or
+acquire an inhibitor. The explicit `install` subcommand performs guided user
+setup. No npm lifecycle scripts are used. Node must remain installed at
 the path captured by `service-unit`. Regenerate the unit after moving the app
 or switching/removing that Node installation.
 
@@ -164,7 +248,7 @@ remote hostname, embedded credentials, URL paths, queries, or redirects. Do not
 point the app at an SSH port-forward of a different machine; a loopback address
 alone cannot prove the actual execution host is local.
 
-## Activate (explicit user action)
+## Manual activation (alternative to guided installation)
 
 After installation and pairing:
 
@@ -182,6 +266,8 @@ For a custom `XDG_CONFIG_HOME`/`XDG_STATE_HOME`, ensure the user systemd manager
 has those same environment values before activation (or add explicit Environment
 entries in a service drop-in). Keep a nondefault systemd unit directory in sync
 with your systemd configuration.
+The guided installer handles these paths explicitly, so it is preferred over
+manual unit generation when using XDG overrides.
 
 At activation, verify real permission and desktop behavior without starting a
 paid agent turn: inspect an existing working thread if available, check the
@@ -220,6 +306,21 @@ the cause. No T3 database or Chromium cache inspection is needed.
 
 ## Uninstall
 
+For a guided installation, disable/stop first and remove the unit and launcher:
+
+```sh
+systemctl --user disable --now t3-keep-awake.service
+rm -- "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/t3-keep-awake.service"
+systemctl --user daemon-reload
+rm -- "$HOME/.local/bin/t3-keep-awake"
+rm -r -- "${XDG_DATA_HOME:-$HOME/.local/share}/t3-keep-awake"
+```
+
+The data directory contains only managed releases and the installation manifest;
+review it before deletion. This retains configuration/credentials until you
+revoke and remove them as described below. For the older npm-global/manual-unit
+installation instead:
+
 ```sh
 systemctl --user disable --now t3-keep-awake.service
 rm -- "$HOME/.config/systemd/user/t3-keep-awake.service"
@@ -237,6 +338,13 @@ config directory contains the token. Confirm no `t3-keep-awake` row remains in
 `npm test` uses synthetic V2 fixtures, mocked HTTP/WebSocket and OS boundaries,
 plus real subprocess pipes for helper readiness, clean stop, and supervisor
 SIGKILL cleanup. Tests never acquire a real inhibitor or run paid agent turns.
+Installer tests use isolated user directories and mocked system commands; they
+verify hidden input, credential/config reuse, durable copies, activation consent,
+updates, conflicts and failures without changing the real user service.
+The 0.2.0 local tarball was also run through offline npx with a synthetic T3
+HTTP server and simulated system commands; the installed CLI remained usable
+after deleting that npx cache. Its generated unit passed real systemd syntax
+validation. This verifies packaging/setup, not live authentication or inhibition.
 The generated unit is checked with `systemd-analyze --user verify`; `npm pack`
 produces the installable artifact. No service is installed or enabled by tests.
 
