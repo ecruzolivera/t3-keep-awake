@@ -1,0 +1,28 @@
+[Unit]
+Description=Keep this host awake while local T3 Code agents work
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=@@NODE@@ @@CLI@@ run
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=78
+KillMode=control-group
+TimeoutStopSec=8
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=t3-keep-awake
+
+[Install]
+WantedBy=default.target

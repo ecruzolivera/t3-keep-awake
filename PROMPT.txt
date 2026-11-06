@@ -1,0 +1,37 @@
+Build t3-keep-awake, a Linux companion for T3 Code that prevents automatic system sleep while local agents work and restores normal sleep behavior when all work finishes.
+
+Deliver a working app, automated tests, user documentation, and an installable systemd user service. Implement and verify autonomously. Prepare installation and activation commands, but do not install/enable the service or change power settings until the user requests activation.
+
+First inspect the machine and current T3 Code source/contracts. A maintainer explains the authenticated shell status stream at https://github.com/pingdotgg/t3code/issues/10929 . Read the later V2 clarification: the initial reply uses V1 names. Verify current endpoint names, WebSocket framing, schemas, authentication, and activity semantics. There is no stable public SDK. Prefer local source or official upstream. Do not modify T3's live database or scrape its Chromium cache.
+
+Architecture:
+- Connect to a configured local T3 environment through read-only pairing.
+- Subscribe to the current shell status stream. Maintain an initial snapshot plus live updates/removals, and recover via supported sequence resume or fresh snapshots.
+- Acquire one OS sleep inhibitor while any relevant local work runs. Use login1 D-Bus or a correctly supervised systemd-inhibit child.
+- Allow display sleep and screen locking normally. Do not override lid policy, critical-battery actions, or explicit shutdown/suspend, or modify system-wide power settings.
+- Run as a systemd user service with restart-on-failure, clear journal logs, and clean shutdown. Verify local inhibitor permissions; do not assume root is needed.
+
+Activity policy:
+- Count running local turns and observable local subagents, delegated work, and background commands, even after their parent turn ends.
+- Waiting solely for user input/approval, an open PR, or a future scheduled auto-resume must not keep the machine awake.
+- Other threads or background work still running must continue to hold the inhibitor.
+- Exclude work hosted on other machines. WSL support is outside this initial Linux scope.
+- Verify which activity current T3 actually exposes. Document coverage gaps rather than claiming complete background-work detection.
+- Handle disconnects with a configurable bounded grace period: tolerate brief interruptions, then release if state cannot be recovered. Never hold a stale inhibitor forever.
+- Reconcile reconnect snapshots without briefly releasing while work still runs.
+- Release on stop, termination, and unrecoverable errors. Ensure an inhibitor child cannot outlive a crashed supervisor.
+
+Configuration:
+- Use XDG paths and restrictive permissions for credentials.
+- Provide setup/pairing and status/diagnostics commands.
+- Use the narrowest read-only grant available; document if it permits more than status metadata.
+- Never log credentials or pairing URLs. Use the native secret-entry tool if a credential is needed from the user.
+- Handle expired/revoked auth with actionable errors and bounded retry backoff.
+- Configure server address, reconnect policy, and disconnect grace. Avoid machine-specific hard-coded ports/paths.
+
+Choose a lightweight stack suited to the protocol and environment. Briefly explain the verified integration path and stack, then proceed without asking about routine implementation choices. No T3 fork or embedded plugin is needed.
+
+Test meaningful behavior with fixtures and mocked protocol/OS boundaries: concurrent threads, last-work completion, approval/input waits, background work outliving a turn, snapshots/removals, disconnect/reconnect, expired auth, graceful stop, and crash cleanup. Do not run paid agent turns. Validate service-unit syntax and packaging without enabling the service.
+
+Document install/uninstall, pairing, activation, journal diagnostics, checking active inhibitors, supported T3 version/protocol, limitations, and upgrade compatibility. Finish with implementation results, tests, and exact activation commands.
+
