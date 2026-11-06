@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Validate release version and ref
+        id: release
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          if (pkg.name !== 't3-keep-awake' || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pkg.version))
+            throw new Error('Invalid release package name or version.');
+          const tag = `v${pkg.version}`;
+          if (process.env.GITHUB_REF_TYPE === 'tag') {
+            if (process.env.GITHUB_REF_NAME !== tag) throw new Error('Tag must match package.json version.');
+          } else if (process.env.GITHUB_REF_NAME !== 'master') {
+            throw new Error('Manual releases must run from master.');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${pkg.version}\ntag=${tag}\n`);
+          const url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/download/${tag}/t3-keep-awake-${pkg.version}.tgz`;
+          writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, [
+            'Install directly from this GitHub release; no npm registry publication is required.',
+            '', 'Requires native Linux, Node.js 24+, and a systemd user session.', '',
+            '```sh', `npx --yes --package=${url} t3-keep-awake install`, '```', '',
+            'The installer discovers local T3, reuses valid pairing, and asks before starting or updating the user service.',
+            '', 'Optional DankMaterialShell 1.6+ indicator:', '',
+            '```sh', `npx --yes --package=${url} t3-keep-awake install-indicator`, '```', '',
+            'The sleep inhibitor can also block ordinary manual or lid-triggered suspend while work runs.',
+            '', 'SHA256SUMS contains the package checksum. The tarball is produced by npm pack, not GitHub’s source archive.', '',
+          ].join('\n'));
+          NODE
+
+      - name: Check source and tests
+        run: npm run check
+
+      - name: Build npm tarball
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Smoke-test packaged CLI outside the checkout
+        working-directory: ${{ runner.temp }}
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          npm_config_cache: ${{ runner.temp }}/npx-release-smoke
+        run: |
+          set -euo pipefail
+          asset="t3-keep-awake-${VERSION}.tgz"
+          test "$(npx --offline --yes --package="./${asset}" t3-keep-awake --version)" = "$VERSION"
+          npx --offline --yes --package="./${asset}" t3-keep-awake help
+          sha256sum "$asset" > SHA256SUMS
+
+      - name: Publish GitHub release
+        working-directory: ${{ runner.temp }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "t3-keep-awake-${VERSION}.tgz" SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$TAG" --notes-file release-notes.md "${flags[@]}"
+          printf 'Published [%s](%s/%s/releases/tag/%s)\n' "$TAG" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$TAG" >> "$GITHUB_STEP_SUMMARY"

@@ -9,15 +9,24 @@ An optional DankMaterialShell indicator shows activity and sleep-protection heal
 
 ## One-command user installation
 
-The installer is implemented and locally packaged, but this package has **not
-been published to npm**. From this checkout, build and run it with:
+Install directly from the GitHub release; no npm registry publication is needed:
+
+```sh
+npx --yes \
+  --package=https://github.com/ecruzolivera/t3-keep-awake/releases/download/v0.4.0/t3-keep-awake-0.4.0.tgz \
+  t3-keep-awake install
+```
+
+Release assets include the package produced by `npm pack` and `SHA256SUMS`.
+Use the versioned package asset, rather than GitHub's automatic source archive.
+This package has **not been published to npm**. To build and run from a checkout:
 
 ```sh
 npm pack
 npx --yes --package=./t3-keep-awake-0.4.0.tgz t3-keep-awake install
 ```
 
-After an authorized npm publication, the public command will be:
+If published to npm in the future, the registry command would be:
 
 ```sh
 npx t3-keep-awake@latest install
@@ -302,7 +311,9 @@ With DankMaterialShell 1.6+ already running, add the T3 badge beside the system
 tray on the first enabled bar:
 
 ```sh
-npx --yes --package=./t3-keep-awake-0.4.0.tgz t3-keep-awake install-indicator
+npx --yes \
+  --package=https://github.com/ecruzolivera/t3-keep-awake/releases/download/v0.4.0/t3-keep-awake-0.4.0.tgz \
+  t3-keep-awake install-indicator
 ```
 
 This installs the bundled plugin into your DMS user configuration, enables it,
@@ -388,6 +399,19 @@ config directory contains the token. Confirm no `t3-keep-awake` row remains in
 `systemd-inhibit --list --no-pager`.
 
 ## Verification and upgrades
+
+Maintainers publish with the **Release** GitHub Actions workflow. Bump
+`package.json` and the documented versioned URLs, push to `master`, then run:
+
+```sh
+gh workflow run release.yml --ref master --repo ecruzolivera/t3-keep-awake
+```
+
+Pushing a matching `vVERSION` tag also triggers the workflow. It validates the
+tag/version, runs checks, builds the npm tarball, and runs the packaged CLI through
+offline npx outside the checkout before publishing the tarball and checksum.
+Manual runs must use `master`. Existing published releases are not overwritten;
+use a new version for an update. No npm token or npm publication is involved.
 
 `npm test` uses synthetic V2 fixtures, mocked HTTP/WebSocket and OS boundaries,
 plus real subprocess pipes for helper readiness, clean stop, and supervisor
