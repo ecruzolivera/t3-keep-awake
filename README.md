@@ -1,15 +1,16 @@
 # t3-keep-awake
 
-A Linux companion that holds one OS sleep inhibitor while observable local T3
-Code work runs, then releases it when that work finishes. Runs as a systemd
-user service; no T3 fork, database access, root daemon, or runtime
-npm dependencies. Requires native Linux, Node.js 24+, systemd/logind, and T3's
-orchestration protocol **2**. WSL is not supported.
-An optional DankMaterialShell indicator shows activity and sleep-protection health.
+Keep your Linux PC awake while local T3 Code agents work. Normal sleep resumes
+when the work finishes. Runs as a systemd user service and starts with your user
+session.
 
-## One-command user installation
+Requires **native Linux, Node.js 24+, systemd/logind, and a running local T3 Code
+server using protocol 2**. WSL is unsupported. DMS is only needed for the optional
+status indicator.
 
-Install directly from the GitHub release; no npm registry publication is needed:
+## Install
+
+Run as your normal user, without sudo:
 
 ```sh
 npx --yes \
@@ -17,361 +18,110 @@ npx --yes \
   t3-keep-awake install
 ```
 
-Release assets include the package produced by `npm pack` and `SHA256SUMS`.
-Use the versioned package asset, rather than GitHub's automatic source archive.
-This package has **not been published to npm**. To build and run from a checkout:
+The installer detects local T3, saves the app outside the npx cache, and guides
+you through pairing. In **T3 Settings → Authorized clients**, create a pairing
+code granting only **Orchestration → Read** (`orchestration:read`). Paste the code
+when prompted; input is hidden. This adds a local authorized client, not a T3
+Connect machine slot. The grant also permits conversation access, but this app
+only reads activity metadata.
 
-```sh
-npm pack
-npx --yes --package=./t3-keep-awake-0.4.0.tgz t3-keep-awake install
-```
+Confirm the final prompt to enable and start the service. The installer checks
+T3 connectivity and shows the startup journal. If connection is not confirmed
+within five seconds, it reports failure and leaves the service enabled to retry.
+Declining leaves a fresh installation stopped or an existing service unchanged.
 
-If published to npm in the future, the registry command would be:
+The CLI is installed at `~/.local/bin/t3-keep-awake`. If that directory is not in
+your PATH, use the full path or add it to your PATH.
 
-```sh
-npx t3-keep-awake@latest install
-```
+To update, use the install command from a newer [GitHub release](https://github.com/ecruzolivera/t3-keep-awake/releases).
+Pairing and configuration are preserved; confirm the prompt to restart onto the
+new version. Rerun installation if you move or replace your Node.js installation.
 
-The installer checks existing Node 24+, native Linux, systemd user-session tools,
-logind and a private runtime directory. It uses no sudo and installs no OS
-packages or private Node runtime. It automatically detects your running local T3
-server, guides creation of a read-only pairing code, accepts that code through
-hidden terminal input, and
-reuses a valid existing companion session on later runs. A local authorized
-client does not register an extra T3 Connect host machine. The orchestration read
-grant permits conversation access too; this companion only consumes shell status.
+## What keeps the PC awake
 
-Discovery inspects current-user TCP listening sockets belonging to T3/Node/Bun/
-Electron processes through Linux `/proc`, then validates the public T3 descriptor
-with bounded, unauthenticated HTTP probes. It reads no process arguments,
-environment, credentials, databases or browser caches. A single environment is
-selected automatically; multiple environments produce a numbered choice. On
-reruns a reachable saved endpoint is reused, and discovery can find the paired
-environment at a changed port. If no compatible server is found, start T3 and
-retry. `--server` remains an override for unusual setups such as HTTPS-only
-listeners or restricted `/proc` access; it is not required for normal setup.
+The companion monitors all threads in one selected local T3 environment.
 
-It copies the app into immutable, content-addressed releases below
-`$XDG_DATA_HOME/t3-keep-awake/releases` (default `~/.local/share`), installs a
-launcher at `~/.local/bin/t3-keep-awake`, and validates/writes the systemd user unit
-under `$XDG_CONFIG_HOME/systemd/user` (default `~/.config`). Node and app paths
-are absolute and point outside the disposable npx package cache. The unit carries
-the selected XDG paths and a stable path to the system's inhibitor command.
-Configuration, credentials and custom reconnect settings are retained. A private
-`install.json` in the app data directory records the installed paths.
-
-**Starting requires a final confirmation, defaulting to No.** Declining a fresh
-installation leaves the service installed and stopped. On an update, declining
-leaves an already running service on its previous unit/release; the new CLI and
-release are staged. Confirming an update enables/restarts onto the new release.
-Old releases remain available so an active service is never deleted underneath
-its running process. Failures retain files/credentials and report the recovery
-action; they do not silently fall back to root or a broader grant.
-
-The process definition is validated before a pairing code is consumed. After your
-confirmation, the installer applies it, enables or restarts the companion, and
-checks readiness.
-
-After enabling or restarting, the installer automatically checks startup for up
-to five seconds. **Successful activation requires a running companion with
-confirmed T3 connectivity.** It reports whether the inhibitor is held and shows
-the latest 12 journal messages for that process invocation. If a
-failed service has no invocation ID left, it queries messages since activation.
-An unconfirmed T3 connection at the deadline fails installation with a nonzero
-exit code. Files and pairing are retained, and the companion stays enabled to
-retry temporary connection failures; it is not automatically stopped or rolled
-back. Connection retries use the configured 1–30 second exponential backoff,
-with jitter. Authentication or incompatible-protocol errors still require repair.
-Use `t3-keep-awake status` and the displayed journal to check recovery. Tokens and
-URLs are redacted from journal output; malformed journal records are not echoed.
-
-For unattended setup, supply all inputs and explicitly leave it stopped:
-
-```sh
-npx --yes --package=./t3-keep-awake-0.4.0.tgz t3-keep-awake install \
-  --server http://127.0.0.1:PORT --credential-file "$XDG_RUNTIME_DIR/t3-pairing" --no-start
-```
-
-The credential file must be owned and mode `0600`; the installer leaves it for
-you to remove. A noninteractive install never enables/starts a service. Existing
-unmanaged launchers/units are not overwritten; move a conflicting file aside
-explicitly after inspecting it. A manually running supervisor must be stopped
-before installation. The installer does not edit shell startup files; if
-`~/.local/bin` is absent from PATH, it prints the full installed CLI path.
-Changing/removing Node requires rerunning installation to capture its new path.
-
-## What counts as work
-
-Monitor every local thread in **one explicitly configured loopback environment**,
-including observable local child threads and work delegated here from elsewhere.
-
-| T3 status | Keeps host awake |
+| Activity | Keeps awake |
 | --- | --- |
-| Preparing, starting, running local turn | Yes |
-| Observable running local subagent | Yes, including after parent completion |
-| Awaited background command, monitor, or task | Yes, including after parent completion |
-| Blocking input/approval request, with no other work | No |
-| Nonblocking asynchronous question while turn runs | Yes |
-| Open PR / `pull-request-watch:` monitor, even if awaited | No |
-| Future auto-resume/scheduled work, queued or plain waiting turn | No |
-| Unawaited command, such as a persistent dev server | No |
-| Parent blocked solely on a thread/delegation wait | No; local children count independently |
+| Running turns and observable local subagents | Yes |
+| Awaited background processes, including after the parent turn finishes | Yes |
+| Waiting only for input, approval, another thread, or a future schedule | No |
+| PR watchers and unawaited dev servers | No |
 
-Native subagents are counted from T3's `kind: subagent` pending summaries even
-when the provider does not set `awaited`. App-owned child summaries follow the
-actual child shell's activity so an input-blocked child does not hold the parent.
-Other concurrently running threads still hold the inhibitor.
+Other local work continues to hold the inhibitor while one thread waits.
+Remote work is excluded where T3 identifies it. T3 does not expose every kind of
+activity: anonymous remote subagents can look local, and an awaited dev server
+can look like a finite process. See [protocol and detection limits](docs/protocol.md).
 
-**Detection limits:** shell data is the source of truth, not an OS process scan.
-Unreported commands, unawaited background tasks, and T3's silent idle compaction
-are outside coverage. The shell does not carry every delegated task's
-`remoteChild` metadata. A running remote task summarized as an anonymous native
-subagent may be indistinguishable from a local one and can cause a false hold.
-Remote-only parent waits and app children absent from this local environment
-do not count. Complete remote/native background detection is **not** claimed.
-See [protocol evidence and compatibility](docs/protocol.md).
-An active foreground run waiting on a dev server can also look identical to a
-finite build/test process wait. `awaited` is reporting intent, not proof that a
-process is finite: a dev server incorrectly marked awaited can still hold.
-The [primary-source research](docs/suspend-inhibition-research.md) explains these
-information limits; no perfect dev-server exclusion is claimed.
-
-## Sleep behavior
-
-The backend matches Herdr Agent Awake:
-
-```text
-systemd-inhibit --no-ask-password --what=sleep --mode=block ...
-```
-
-Screen locking and display sleep remain enabled. No DMS sleep adapter or power
-configuration edits are made. This sleep inhibitor **may also block ordinary
-manual or lid-triggered suspend** while work runs. This is the explicitly agreed
-relaxation of the original prompt's manual/lid requirement. Stop the companion
-before intentionally suspending:
+Screen locking and display sleep continue normally. The sleep inhibitor **can
+also block manual or lid-triggered suspend**, and may interfere with emergency
+suspend if the power manager honors it. No power settings are changed. Stop the
+companion before intentionally suspending:
 
 ```sh
 systemctl --user stop t3-keep-awake.service
 ```
 
-The app does not acquire shutdown, lid-key, or power-key inhibitors. It does not
-change critical-battery settings or force sleep/shutdown behavior. A sleep lock
-can interfere with a power manager's emergency suspend if it honors that lock;
-preserving every critical-battery action is not guaranteed. Privileged
-operations or operations explicitly ignoring inhibitors can bypass a sleep lock;
-this is not a guarantee that the machine can never suspend.
-
-The systemd-inhibit wrapper holds the inhibitor while its child helper runs.
-Supervisor death closes the helper's stdin lease pipe; helper EOF makes it exit,
-then the wrapper exits and closes its inhibitor FD.
-The service additionally uses `KillMode=control-group`. SIGTERM/SIGINT release
-cleanly, and unrecoverable protocol/auth errors release immediately.
-
-## Install (when ready)
-
-The source runs directly; no build is needed:
+Resume monitoring with:
 
 ```sh
-npm test
-node bin/t3-keep-awake.mjs help
+systemctl --user start t3-keep-awake.service
 ```
 
-Create the portable npm tarball with `npm pack`. Install either the prepared
-tarball or a fresh one into your user prefix:
-
-```sh
-npm install --global --prefix "$HOME/.local" ./t3-keep-awake-0.4.0.tgz
-export PATH="$HOME/.local/bin:$PATH"
-t3-keep-awake help
-```
-
-Installing the npm package alone does not start a daemon, install a unit, or
-acquire an inhibitor. The explicit `install` subcommand performs guided user
-setup. No npm lifecycle scripts are used. Node must remain installed at
-the path captured by `service-unit`. Regenerate the unit after moving the app
-or switching/removing that Node installation.
-
-## Pairing and configuration
-
-1. In T3 **Settings → Authorized clients**, create a pairing link with only
-   **Orchestration → Read** (`orchestration:read`). Avoid a broad preset when a
-   custom grant is available. Find the current local HTTP origin in T3's
-   connection settings; do not assume a fixed port.
-2. Put its raw credential or direct local `/pair#token=…` URL in an owned regular
-   file with mode `0600`, preferably in `$XDG_RUNTIME_DIR`. Do not put it in a
-   command argument, shell history, chat message, or the repository. Hosted
-   pairing wrappers are intentionally not accepted.
-3. Run the following with your actual origin and private input file:
-
-```sh
-t3-keep-awake pair --server http://127.0.0.1:PORT --credential-file "$XDG_RUNTIME_DIR/t3-pairing"
-rm -- "$XDG_RUNTIME_DIR/t3-pairing"
-t3-keep-awake diagnose
-```
-
-Pairing consumes the bootstrap through T3's supported token exchange and saves
-only the resulting access token, expiry, and environment identity. It does not
-start monitoring or inhibit sleep. The exchange explicitly requests only
-`orchestration:read`; both returned scope and effective session permissions must
-match exactly. The app supports the Bearer session T3 issues when no DPoP proof
-is supplied; it rejects unexpected DPoP responses. There is no automatic refresh
-or silent upgrade to broader access. Expired/revoked sessions require pairing
-again and restarting the service. Revoke the old client/link in T3 when replacing
-or uninstalling it.
-
-**Grant boundary:** this is read-only orchestration access, **not status-only
-access**. It can read conversations and orchestration metadata, and upstream
-also authorizes some server/provider discovery operations with this permission.
-On the inspected current source, filesystem access requires a separate
-`filesystem:read` grant. Older T3 builds may have broader read-scope semantics;
-consult their source before pairing. This companion calls only descriptor,
-session, ticket, token exchange, and shell subscription endpoints. It does not
-log credentials, URLs, conversation text, thread titles, or raw server errors.
-
-Files follow XDG paths (fallbacks shown):
-
-| File | Purpose |
-| --- | --- |
-| `~/.config/t3-keep-awake/config.json` | Server and reconnect policy |
-| `~/.config/t3-keep-awake/credentials.json` | Private access token and expiry |
-| `~/.local/state/t3-keep-awake/status.json` | Redacted process/activity diagnostics |
-| `$XDG_RUNTIME_DIR/t3-keep-awake/supervisor.sock` | Single-supervisor lock |
-
-App directories must be owned by you with mode `0700`; configuration/credential
-files must be owned regular files with mode `0600`. Symlink final components
-are rejected. Absolute `XDG_CONFIG_HOME` and `XDG_STATE_HOME` overrides work;
-relative values fall back to the defaults. `XDG_RUNTIME_DIR` is required to run.
-First pairing writes default reconnect settings; re-pairing the same server
-preserves them. Edit the private config after pairing:
-
-```json
-{
-  "server": "http://127.0.0.1:PORT",
-  "disconnectGraceMs": 30000,
-  "reconnectMinMs": 1000,
-  "reconnectMaxMs": 30000
-}
-```
-
-Replace `PORT` with a number. Grace accepts 0–300000 ms. Retry bounds accept
-100–60000 ms minimum and 100–300000 ms maximum, with maximum ≥ minimum. Network
-retries use capped exponential backoff with jitter; these continue indefinitely
-at the cap, while stale inhibition ends within grace plus the 500 ms supervisor
-tick. Repeated failed/partial reconnects do not extend grace. A fresh synchronized
-snapshot atomically replaces state after reconnect; it does not briefly release
-an existing hold while active work is being reconciled. Auth and incompatible
-protocol errors stop with exit 78 and are excluded from automatic restart.
-
-Loopback HTTP(S) origins only: `127.0.0.0/8`, `localhost`, or `::1`. No arbitrary
-remote hostname, embedded credentials, URL paths, queries, or redirects. Do not
-point the app at an SSH port-forward of a different machine; a loopback address
-alone cannot prove the actual execution host is local.
-
-## Manual activation (alternative to guided installation)
-
-After installation and pairing:
-
-```sh
-install -d -m 700 "$HOME/.config/systemd/user"
-t3-keep-awake service-unit > "$HOME/.config/systemd/user/t3-keep-awake.service"
-systemd-analyze --user verify "$HOME/.config/systemd/user/t3-keep-awake.service"
-systemctl --user daemon-reload
-systemctl --user enable --now t3-keep-awake.service
-```
-
-`service-unit` only prints the unit, with correctly quoted absolute paths to the
-current Node executable and installed app. It installs/enables nothing itself.
-For a custom `XDG_CONFIG_HOME`/`XDG_STATE_HOME`, ensure the user systemd manager
-has those same environment values before activation (or add explicit Environment
-entries in a service drop-in). Keep a nondefault systemd unit directory in sync
-with your systemd configuration.
-The guided installer handles these paths explicitly, so it is preferred over
-manual unit generation when using XDG overrides.
-
-At activation, verify real permission and desktop behavior without starting a
-paid agent turn: inspect an existing working thread if available, check the
-inhibitor list, and confirm locking/display sleep still work. The read-only
-`diagnose` checks policy metadata; it deliberately does not acquire a lock and
-cannot prove that an actual runtime request will be granted. Do not add root
-permissions merely because acquisition fails; inspect the journal/policy first.
-
-## Diagnostics
+## Status and troubleshooting
 
 ```sh
 t3-keep-awake status
 t3-keep-awake diagnose
-systemctl --user status t3-keep-awake.service
 journalctl --user -u t3-keep-awake.service -f
 systemd-inhibit --list --no-pager
 ```
 
-## Optional DankBar indicator
+While work runs, status should show `running: true`, `connected: true`, and
+`held: true`. An idle companion normally reports `held: false`. The inhibitor
+list should contain a `t3-keep-awake` entry only while the lock is held.
 
-With DankMaterialShell 1.6+ already running, add the T3 badge beside the system
-tray on the first enabled bar:
+Temporary connection failures retry with a default 1–30 second backoff. A held
+lock is released after the disconnect grace period, which defaults to 30 seconds.
+If T3 changes port or pairing expires, rerun the installer. Authentication or
+protocol failures require repair before restarting; they do not retry forever.
+After a T3 upgrade, check connectivity and consult the [compatibility notes](docs/protocol.md).
+
+Private configuration and credentials are stored in
+`~/.config/t3-keep-awake/`, diagnostics in `~/.local/state/t3-keep-awake/`, and
+installed releases in `~/.local/share/t3-keep-awake/`. These respect the
+corresponding XDG directory overrides. The configuration file supports
+`disconnectGraceMs`, `reconnectMinMs`, and `reconnectMaxMs`.
+
+## DMS status indicator
+
+With **DankMaterialShell 1.6+** running, add the badge to DankBar:
 
 ```sh
-npx --yes \
-  --package=https://github.com/ecruzolivera/t3-keep-awake/releases/download/v0.4.0/t3-keep-awake-0.4.0.tgz \
-  t3-keep-awake install-indicator
+t3-keep-awake install-indicator
 ```
 
-This installs the bundled plugin into your DMS user configuration, enables it,
-and adds the widget without restarting DMS or the sleep companion. Reruns update
-the plugin and preserve its position. Other widgets and settings are retained;
-the original bar configuration is backed up as
-`~/.config/DankMaterialShell/settings.json.before-t3-indicator` (or below your
-`XDG_CONFIG_HOME`). The indicator starts with DMS on later logins.
+Click the badge for activity counts and sleep-protection status.
 
 | Badge | Meaning |
 | --- | --- |
-| Yellow fill | T3 is working |
-| Red fill | Input needed, a failed thread, or work without a held sleep inhibitor |
+| Yellow fill | Working |
+| Red fill | Input needed, a failed thread, or work without sleep protection |
 | Green fill | Completed work |
 | Green outline | Idle |
-| Gray outline | Disconnected, observe mode, missing or stale companion status |
+| Gray outline | Disconnected, stopped, stale status, or observe mode |
 
-The priority is missing protection, disconnected state, failed threads, input
-requests, completed work, then running work. Click the badge for the exact state,
-counts and sleep-protection status. Details open only on click; it does not send
-desktop notification popups. Completion stays visible until T3 marks the thread
-settled or archived. Working threads still count regardless of those flags.
-
-The plugin reads only the companion's redacted local `status.json`. It performs
-no T3 authentication, reads no conversations or thread titles, and starts no
-subprocesses per update. Missing status clears immediately when detected; a
-timestamp older than five seconds is treated as unconfirmed. Older companions
-support working/idle and inhibitor health; upgrade/restart the companion through
-the normal installer for waiting, completed and failed counts. Adding the widget
-alone does not upgrade the companion or activate sleep inhibition.
-
-To remove it, disable **T3 Code Status** in DMS Settings → Plugins and remove its
-widget from DankBar settings. Its files are in
-`~/.config/DankMaterialShell/plugins/t3-keep-awake`.
-
-## Status and recovery
-
-Status validates the PID's Linux process start time; a stale file or reused PID
-does not claim a live inhibitor. Logs identify connection, inhibition transitions,
-and actionable failures without printing raw HTTP/WebSocket responses. Only one
-supervisor can run in this user session, including observe mode.
-
-For a read-only authenticated live stream check, with the service stopped:
-
-```sh
-t3-keep-awake run --observe
-```
-
-Observe mode simulates inhibition; its status always reports `held: false`.
-Stop it with Ctrl+C before starting the service. If T3 changes environment identity
-or listening port, stop the service, pair again with the new local endpoint, and
-restart it. For exit 78, correct the pairing or protocol mismatch before restart;
-for repeated restart failures, use `systemctl --user reset-failed` after fixing
-the cause. No T3 database or Chromium cache inspection is needed.
+The indicator reads the companion's local status; no additional pairing is
+needed. Reinstalling preserves its bar position. The original bar settings are
+backed up at `~/.config/DankMaterialShell/settings.json.before-t3-indicator`.
 
 ## Uninstall
 
-For a guided installation, disable/stop first and remove the unit and launcher:
+If using the indicator, disable **T3 Code Status** in DMS Settings → Plugins and
+remove its widget in DankBar settings. Its files are under
+`~/.config/DankMaterialShell/plugins/t3-keep-awake/`.
+
+Remove the companion:
 
 ```sh
 systemctl --user disable --now t3-keep-awake.service
@@ -381,60 +131,31 @@ rm -- "$HOME/.local/bin/t3-keep-awake"
 rm -r -- "${XDG_DATA_HOME:-$HOME/.local/share}/t3-keep-awake"
 ```
 
-The data directory contains only managed releases and the installation manifest;
-review it before deletion. This retains configuration/credentials until you
-revoke and remove them as described below. For the older npm-global/manual-unit
-installation instead:
+Revoke its authorized client in T3. Saved configuration, credentials, and
+status files remain in the directories listed above; remove them if no longer
+needed. Check that no `t3-keep-awake` lock remains in the inhibitor list.
+
+## Development and releases
 
 ```sh
-systemctl --user disable --now t3-keep-awake.service
-rm -- "$HOME/.config/systemd/user/t3-keep-awake.service"
-systemctl --user daemon-reload
-npm uninstall --global --prefix "$HOME/.local" t3-keep-awake
+npm run check
+npm pack
 ```
 
-Revoke its authorized client/pairing link in T3. If no longer needed, remove the
-app's config, state, and runtime directories at the XDG locations above; the
-config directory contains the token. Confirm no `t3-keep-awake` row remains in
-`systemd-inhibit --list --no-pager`.
+Tests use simulated T3 and system boundaries; they do not acquire real sleep
+inhibitors or alter your service. Quickshell monitor tests run headlessly when
+Quickshell is installed.
 
-## Verification and upgrades
-
-Maintainers publish with the **Release** GitHub Actions workflow. Bump
-`package.json` and the documented versioned URLs, push to `master`, then run:
+To release, update the version in `package.json` and this README, push to
+`master`, then run:
 
 ```sh
 gh workflow run release.yml --ref master --repo ecruzolivera/t3-keep-awake
 ```
 
-Pushing a matching `vVERSION` tag also triggers the workflow. It validates the
-tag/version, runs checks, builds the npm tarball, and runs the packaged CLI through
-offline npx outside the checkout before publishing the tarball and checksum.
-Manual runs must use `master`. Existing published releases are not overwritten;
-use a new version for an update. No npm token or npm publication is involved.
+A matching `vVERSION` tag also triggers the workflow. It runs checks, packages the
+app, smoke-tests the packaged CLI through npx, and publishes the tarball and
+`SHA256SUMS` to GitHub Releases. Existing releases are not overwritten.
 
-`npm test` uses synthetic V2 fixtures, mocked HTTP/WebSocket and OS boundaries,
-plus real subprocess pipes for helper readiness, clean stop, and supervisor
-SIGKILL cleanup. Tests never acquire a real inhibitor or run paid agent turns.
-Installer tests use isolated user directories and mocked system commands; they
-verify hidden input, credential/config reuse, durable copies, activation consent,
-updates, conflicts and failures without changing the real user service.
-Indicator tests cover state priorities, counts, safe configuration edits, and
-atomic updates/deletion/recovery/staleness through a real headless Quickshell
-monitor when Quickshell is installed. They never modify the running desktop.
-The 0.2.0 local tarball was also run through offline npx with a synthetic T3
-HTTP server and simulated system commands; the installed CLI remained usable
-after deleting that npx cache. Its generated unit passed real systemd syntax
-validation. This verifies packaging/setup, not live authentication or inhibition.
-The generated unit is checked with `systemd-analyze --user verify`; `npm pack`
-produces the installable artifact. No service is installed or enabled by tests.
-
-Inspected source: T3 server package 0.1.7, commit
-`310a0d51942ad742678e9f50783e34967de11b12`, schema 2 and Effect 4.1.2 JSON framing.
-The local installed server 0.1.6 was checked through its public descriptor and
-reports protocol 2. Live authenticated pairing/stream and real inhibition were
-not exercised before activation. There is no stable public SDK: protocol 2 alone
-does not guarantee every future schema/activity change remains compatible.
-Review [docs/protocol.md](docs/protocol.md) and rerun tests/observe diagnostics
-after T3 upgrades. Unknown activity/schema/RPC framing fails closed by releasing
-inhibition and requiring a compatible companion update.
+See the [protocol notes](docs/protocol.md) and
+[suspend-inhibition research](docs/suspend-inhibition-research.md) for technical details.
