@@ -49,6 +49,17 @@ test('bar insertion preserves existing widgets and does not duplicate the indica
   assert.deepEqual(updated.barConfigs[0].rightWidgets, ['systemTray', { id: 't3KeepAwake', enabled: true }, { id: 'herdrAgents', enabled: false }, 'clock']);
   assert.deepEqual(addIndicatorToBar(updated), updated);
 });
+test('reinstall preserves an indicator moved to another bar without adding a duplicate', () => {
+  for (const section of ['leftWidgets', 'centerWidgets', 'rightWidgets']) {
+    const settings = { barConfigs: [
+      { id: 'main', enabled: true, rightWidgets: [{ id: 'systemTray', enabled: true }] },
+      { id: 'secondary', enabled: true, rightWidgets: [], [section]: [
+        { id: 'clock', enabled: true }, { id: 't3KeepAwake', enabled: true, customSetting: 'keep' },
+      ] },
+    ] };
+    assert.deepEqual(addIndicatorToBar(settings), settings);
+  }
+});
 test('indicator installation uses the selected private status path and backs up bar configuration', async t => {
   const root = await mkdtemp(join(tmpdir(), 't3-indicator-install-'));
   t.after(() => rm(root, { recursive: true, force: true }));
