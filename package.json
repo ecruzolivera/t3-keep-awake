@@ -1,11 +1,11 @@
 {
   "name": "t3-keep-awake",
-  "version": "0.2.2",
+  "version": "0.4.0",
   "description": "Keep a Linux host awake while its local T3 Code agents work",
   "type": "module",
   "engines": { "node": ">=24" },
   "bin": { "t3-keep-awake": "bin/t3-keep-awake.mjs" },
-  "files": ["bin", "lib", "systemd", "README.md", "docs", "LICENSE"],
+  "files": ["bin", "lib", "systemd", "plugins", "README.md", "docs", "LICENSE"],
   "scripts": { "test": "node --test test/*.test.mjs", "check": "node --check bin/t3-keep-awake.mjs && node --test test/*.test.mjs" },
   "license": "MIT"
 }

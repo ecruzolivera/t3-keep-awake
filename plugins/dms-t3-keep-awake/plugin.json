@@ -1,0 +1,13 @@
+{
+  "id": "t3KeepAwake",
+  "name": "T3 Code Status",
+  "description": "T3 thread activity and sleep-protection health",
+  "version": "1.0.0",
+  "author": "Ernesto Cruz Olivera",
+  "icon": "smart_toy",
+  "type": "composite",
+  "capabilities": ["daemon", "dankbar-widget"],
+  "components": { "daemon": "./T3Monitor.qml", "widget": "./T3Widget.qml" },
+  "permissions": [],
+  "requires_dms": ">=1.6.0"
+}

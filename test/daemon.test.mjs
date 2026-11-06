@@ -36,6 +36,7 @@ test('daemon: synchronized concurrent work, reconnect without flicker, last comp
   const first = FakeSocket.instances.at(-1);
   first.receive(chunk([snapshot([thread('a', { status: 'running' }), thread('b', { status: 'running' })]), synchronized]));
   await until(() => context.inhibitor.active);
+  await until(() => context.statuses.some(value => value.threadStates?.working === 2));
   first.close();
   await until(() => FakeSocket.instances.length > start + 1);
   const second = FakeSocket.instances.at(-1);
@@ -48,6 +49,7 @@ test('daemon: synchronized concurrent work, reconnect without flicker, last comp
   context.aborter.abort(); await context.running;
   assert.deepEqual(context.transitions, ['acquire', 'release']);
   assert.equal(context.statuses.at(-1).connected, false);
+  assert.equal(context.statuses.at(-1).threadStates, null);
 });
 test('repeated disconnects and partial snapshots never extend grace forever', async t => {
   let sessions = 0;

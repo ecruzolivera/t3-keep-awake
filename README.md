@@ -2,9 +2,10 @@
 
 A Linux companion that holds one OS sleep inhibitor while observable local T3
 Code work runs, then releases it when that work finishes. Runs as a systemd
-user service; no T3 fork, database access, desktop plugin, root daemon, or runtime
+user service; no T3 fork, database access, root daemon, or runtime
 npm dependencies. Requires native Linux, Node.js 24+, systemd/logind, and T3's
 orchestration protocol **2**. WSL is not supported.
+An optional DankMaterialShell indicator shows activity and sleep-protection health.
 
 ## One-command user installation
 
@@ -13,7 +14,7 @@ been published to npm**. From this checkout, build and run it with:
 
 ```sh
 npm pack
-npx --yes --package=./t3-keep-awake-0.2.2.tgz t3-keep-awake install
+npx --yes --package=./t3-keep-awake-0.4.0.tgz t3-keep-awake install
 ```
 
 After an authorized npm publication, the public command will be:
@@ -58,18 +59,27 @@ Old releases remain available so an active service is never deleted underneath
 its running process. Failures retain files/credentials and report the recovery
 action; they do not silently fall back to root or a broader grant.
 
-After enabling or restarting, the installer automatically checks service startup
-for up to five seconds, reports whether T3 is connected and the inhibitor is held,
-and displays the latest 12 journal messages for that service invocation. If a
+The process definition is validated before a pairing code is consumed. After your
+confirmation, the installer applies it, enables or restarts the companion, and
+checks readiness.
+
+After enabling or restarting, the installer automatically checks startup for up
+to five seconds. **Successful activation requires a running companion with
+confirmed T3 connectivity.** It reports whether the inhibitor is held and shows
+the latest 12 journal messages for that process invocation. If a
 failed service has no invocation ID left, it queries messages since activation.
-It reports failures and an unconfirmed T3 connection explicitly, rather than
-equating an active systemd process with successful monitoring. Tokens and URLs
-are redacted from journal output; malformed journal records are not echoed.
+An unconfirmed T3 connection at the deadline fails installation with a nonzero
+exit code. Files and pairing are retained, and the companion stays enabled to
+retry temporary connection failures; it is not automatically stopped or rolled
+back. Connection retries use the configured 1–30 second exponential backoff,
+with jitter. Authentication or incompatible-protocol errors still require repair.
+Use `t3-keep-awake status` and the displayed journal to check recovery. Tokens and
+URLs are redacted from journal output; malformed journal records are not echoed.
 
 For unattended setup, supply all inputs and explicitly leave it stopped:
 
 ```sh
-npx --yes --package=./t3-keep-awake-0.2.2.tgz t3-keep-awake install \
+npx --yes --package=./t3-keep-awake-0.4.0.tgz t3-keep-awake install \
   --server http://127.0.0.1:PORT --credential-file "$XDG_RUNTIME_DIR/t3-pairing" --no-start
 ```
 
@@ -125,7 +135,7 @@ The backend matches Herdr Agent Awake:
 systemd-inhibit --no-ask-password --what=sleep --mode=block ...
 ```
 
-Screen locking and display sleep remain enabled. No DMS integration or power
+Screen locking and display sleep remain enabled. No DMS sleep adapter or power
 configuration edits are made. This sleep inhibitor **may also block ordinary
 manual or lid-triggered suspend** while work runs. This is the explicitly agreed
 relaxation of the original prompt's manual/lid requirement. Stop the companion
@@ -161,7 +171,7 @@ Create the portable npm tarball with `npm pack`. Install either the prepared
 tarball or a fresh one into your user prefix:
 
 ```sh
-npm install --global --prefix "$HOME/.local" ./t3-keep-awake-0.2.2.tgz
+npm install --global --prefix "$HOME/.local" ./t3-keep-awake-0.4.0.tgz
 export PATH="$HOME/.local/bin:$PATH"
 t3-keep-awake help
 ```
@@ -286,6 +296,50 @@ journalctl --user -u t3-keep-awake.service -f
 systemd-inhibit --list --no-pager
 ```
 
+## Optional DankBar indicator
+
+With DankMaterialShell 1.6+ already running, add the T3 badge beside the system
+tray on the first enabled bar:
+
+```sh
+npx --yes --package=./t3-keep-awake-0.4.0.tgz t3-keep-awake install-indicator
+```
+
+This installs the bundled plugin into your DMS user configuration, enables it,
+and adds the widget without restarting DMS or the sleep companion. Reruns update
+the plugin and preserve its position. Other widgets and settings are retained;
+the original bar configuration is backed up as
+`~/.config/DankMaterialShell/settings.json.before-t3-indicator` (or below your
+`XDG_CONFIG_HOME`). The indicator starts with DMS on later logins.
+
+| Badge | Meaning |
+| --- | --- |
+| Yellow fill | T3 is working |
+| Red fill | Input needed, a failed thread, or work without a held sleep inhibitor |
+| Green fill | Completed work |
+| Green outline | Idle |
+| Gray outline | Disconnected, observe mode, missing or stale companion status |
+
+The priority is missing protection, disconnected state, failed threads, input
+requests, completed work, then running work. Click the badge for the exact state,
+counts and sleep-protection status. Details open only on click; it does not send
+desktop notification popups. Completion stays visible until T3 marks the thread
+settled or archived. Working threads still count regardless of those flags.
+
+The plugin reads only the companion's redacted local `status.json`. It performs
+no T3 authentication, reads no conversations or thread titles, and starts no
+subprocesses per update. Missing status clears immediately when detected; a
+timestamp older than five seconds is treated as unconfirmed. Older companions
+support working/idle and inhibitor health; upgrade/restart the companion through
+the normal installer for waiting, completed and failed counts. Adding the widget
+alone does not upgrade the companion or activate sleep inhibition.
+
+To remove it, disable **T3 Code Status** in DMS Settings → Plugins and remove its
+widget from DankBar settings. Its files are in
+`~/.config/DankMaterialShell/plugins/t3-keep-awake`.
+
+## Status and recovery
+
 Status validates the PID's Linux process start time; a stale file or reused PID
 does not claim a live inhibitor. Logs identify connection, inhibition transitions,
 and actionable failures without printing raw HTTP/WebSocket responses. Only one
@@ -341,6 +395,9 @@ SIGKILL cleanup. Tests never acquire a real inhibitor or run paid agent turns.
 Installer tests use isolated user directories and mocked system commands; they
 verify hidden input, credential/config reuse, durable copies, activation consent,
 updates, conflicts and failures without changing the real user service.
+Indicator tests cover state priorities, counts, safe configuration edits, and
+atomic updates/deletion/recovery/staleness through a real headless Quickshell
+monitor when Quickshell is installed. They never modify the running desktop.
 The 0.2.0 local tarball was also run through offline npx with a synthetic T3
 HTTP server and simulated system commands; the installed CLI remained usable
 after deleting that npx cache. Its generated unit passed real systemd syntax

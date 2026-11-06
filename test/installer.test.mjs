@@ -4,31 +4,40 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { install, installLayout } from '../lib/installer.mjs';
 import { paths, readPrivate, writePrivate } from '../lib/config.mjs';
+import { processIdentity } from '../lib/runtime.mjs';
 
-async function fixture(t, { active = false, confirm = false } = {}) {
+async function fixture(t, { active = false, confirm = false, connected = true } = {}) {
   const temp = await mkdtemp(join(tmpdir(), 't3-awake-install-'));
   t.after(() => rm(temp, { recursive: true, force: true }));
   const home = join(temp, "home with spaces '$");
   const source = join(temp, 'npx-cache');
   const env = { ...process.env, XDG_DATA_HOME: join(home, 'data'), XDG_CONFIG_HOME: join(home, 'config'), XDG_STATE_HOME: join(home, 'state'), XDG_RUNTIME_DIR: temp };
-  for (const dir of ['bin', 'lib', 'systemd', 'docs']) await mkdir(join(source, dir), { recursive: true });
+  for (const dir of ['bin', 'lib', 'systemd', 'docs', 'plugins']) await mkdir(join(source, dir), { recursive: true });
   await writeFile(join(source, 'package.json'), JSON.stringify({ name: 't3-keep-awake', version: '0.2.0' }));
   await writeFile(join(source, 'bin/t3-keep-awake.mjs'), "console.log('durable installed fixture');\n");
-  for (const name of ['README.md', 'LICENSE', 'lib/example.mjs', 'systemd/example', 'docs/example.md']) await writeFile(join(source, name), 'fixture\n');
+  for (const name of ['README.md', 'LICENSE', 'lib/example.mjs', 'systemd/example', 'docs/example.md', 'plugins/example.qml']) await writeFile(join(source, name), 'fixture\n');
   const calls = []; const logs = [];
+  const p = paths(env);
+  const startTime = await processIdentity();
   let pairings = 0; let secrets = 0; let confirmations = 0;
   const options = { env, home, source, server: 'http://127.0.0.1:12345', log: value => logs.push(value),
-    preflight: async () => ({ systemctl: '/mock/systemctl', 'systemd-inhibit': '/mock/systemd-inhibit', 'systemd-analyze': '/mock/systemd-analyze' }),
+    preflight: async () => ({ systemctl: '/mock/systemctl', 'systemd-inhibit': '/mock/systemd-inhibit', 'systemd-analyze': '/mock/systemd-analyze', journalctl: '/mock/journalctl' }),
     run: (command, args) => {
       calls.push([command, ...args]);
       if (args.includes('is-active')) return { code: active ? 0 : 4, stdout: active ? 'active' : 'inactive' };
-      if (args.includes('enable')) active = true;
+      if (args.includes('enable')) {
+        active = true;
+        mkdirSync(p.state, { recursive: true, mode: 0o700 });
+        writeFileSync(join(p.state, 'status.json'), JSON.stringify({ pid: process.pid, startTime, connected, activeThreads: 1, held: connected }), { mode: 0o600 });
+      }
+      if (args.includes('show')) return { code: 0, stdout: `ActiveState=${active ? 'active' : 'inactive'}\nSubState=${active ? 'running' : 'dead'}\nResult=success\nInvocationID=${'a'.repeat(32)}\nMainPID=${active ? process.pid : 0}\n` };
+      if (command === '/mock/journalctl') return { code: 0, stdout: JSON.stringify({ MESSAGE: connected ? 'T3 shell snapshot synchronized.' : 'Local T3 connection failed; retrying.' }) };
       return { code: 0, stdout: '' };
     },
     getDescriptor: async () => ({ environmentId: 'local' }), verify: async () => {},
-    checkActivation: async ({ run, commands }) => ({ active: run(commands.systemctl, ['--user', 'is-active', 't3-keep-awake.service']).code === 0, connected: true }),
     exchange: async (server, bootstrap) => {
       assert.equal(bootstrap, 'PRIVATE-BOOTSTRAP'); pairings++;
       return { server, accessToken: 'PRIVATE-ACCESS', environmentId: 'local', expiresAt: Date.now() + 100000 };
@@ -73,18 +82,22 @@ test('repeat installation reuses credentials, release and custom configuration',
 });
 test('activation occurs only after affirmative confirmation', async t => {
   const f = await fixture(t, { confirm: true });
-  let checked = false;
-  const result = await install({ ...f.options, checkActivation: async options => {
-    checked = true;
-    assert.ok(f.calls.some(call => call.includes('enable')));
-    assert.deepEqual(options.secrets, ['PRIVATE-ACCESS']);
-    return { active: true, connected: true };
-  } });
+  const result = await install(f.options);
   assert.equal(result.activated, true);
-  assert.equal(checked, true);
+  assert.ok(f.logs.includes('T3: connected. Active threads: 1. Sleep inhibitor: held.'));
+  assert.ok(f.logs.includes('  T3 shell snapshot synchronized.'));
   const actions = f.calls.map(call => call.slice(1));
   assert.ok(actions.some(args => args.join(' ') === '--user enable --now t3-keep-awake.service'));
   assert.ok(actions.findIndex(args => args.includes('daemon-reload')) < actions.findIndex(args => args.includes('enable')));
+});
+test('unconfirmed T3 readiness fails installation but leaves the companion enabled to retry', async t => {
+  const f = await fixture(t, { confirm: true, connected: false });
+  await assert.rejects(install(f.options), { code: 'readiness', fatal: true });
+  assert.equal(f.options.run('/mock/systemctl', ['--user', 'is-active', 't3-keep-awake.service']).code, 0);
+  assert.equal(f.calls.some(call => call.includes('stop') || call.includes('disable')), false);
+  assert.ok(f.logs.includes('  Local T3 connection failed; retrying.'));
+  assert.equal((await stat(f.layout.unit)).isFile(), true);
+  assert.equal((await readPrivate(join(f.p.config, 'credentials.json'))).accessToken, 'PRIVATE-ACCESS');
 });
 test('updating an active service without restart confirmation preserves its unit and process', async t => {
   const f = await fixture(t, { confirm: true });

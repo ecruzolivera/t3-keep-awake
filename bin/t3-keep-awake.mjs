@@ -13,6 +13,7 @@ import { singleInstance, processIdentity, isLive } from '../lib/runtime.mjs';
 import { serviceUnit } from '../lib/service.mjs';
 import { pairingInput } from '../lib/pairing-input.mjs';
 import { install } from '../lib/installer.mjs';
+import { installIndicator } from '../lib/indicator.mjs';
 
 process.umask(0o077);
 const HELP = `t3-keep-awake (Linux, Node >=24)
@@ -22,6 +23,7 @@ const HELP = `t3-keep-awake (Linux, Node >=24)
   pair --server http://127.0.0.1:PORT --credential-file /private/file
   run [--observe]         Supervise local work (observe never inhibits sleep)
   status                 Show private, redacted daemon status
+  install-indicator      Add the T3 status indicator to your existing DankBar
   diagnose [--server ORIGIN]  Read-only compatibility and permission checks
   service-unit           Print an installable user unit; changes nothing
   help
@@ -43,11 +45,12 @@ async function main() {
   const command = values.help ? 'help' : positionals[0] ?? 'help';
   if (positionals.length > 1) throw new AppError('usage', 'Unexpected arguments; run help.', true);
   if (command === 'help') { console.log(HELP); return; }
-  const allowed = { install: ['server', 'credential-file', 'no-start'], pair: ['server', 'credential-file'], run: ['observe'], diagnose: ['server'], status: [], 'service-unit': [] };
+  const allowed = { install: ['server', 'credential-file', 'no-start'], pair: ['server', 'credential-file'], run: ['observe'], diagnose: ['server'], status: [], 'service-unit': [], 'install-indicator': [] };
   for (const key of Object.keys(values)) if (!allowed[command]?.includes(key)) throw new AppError('usage', 'Option is not supported by this command; run help.', true);
   if (platform() !== 'linux' || /microsoft/i.test(release())) throw new AppError('platform', 'Only native Linux is supported; WSL is outside this release.', true);
   const p = paths();
   switch (command) {
+    case 'install-indicator': await installIndicator(); break;
     case 'install': await install({ server: values.server, credentialFile: values['credential-file'], noStart: values['no-start'] }); break;
     case 'pair': {
       if (!values.server || !values['credential-file']) throw new AppError('usage', 'pair requires --server and --credential-file. Run help.', true);
@@ -95,6 +98,7 @@ async function main() {
       console.log(JSON.stringify({ running: live, held: live && value?.held === true,
         connected: live && value?.connected === true, observing: live && value?.observing === true,
         activeThreads: live ? value.activeThreads : 0, lastError: value?.lastError ?? null,
+        threadStates: live ? value.threadStates ?? null : null,
         updatedAt: value?.updatedAt ?? null }, null, 2));
       break;
     }
