@@ -14,7 +14,7 @@ Run as your normal user, without sudo:
 
 ```sh
 npx --yes \
-  --package=https://github.com/ecruzolivera/t3-keep-awake/releases/download/v0.4.0/t3-keep-awake-0.4.0.tgz \
+  --package=https://github.com/ecruzolivera/t3-keep-awake/releases/download/v0.4.1/t3-keep-awake-0.4.1.tgz \
   t3-keep-awake install
 ```
 
@@ -105,11 +105,19 @@ Click the badge for activity counts and sleep-protection status.
 
 | Badge | Meaning |
 | --- | --- |
-| Yellow fill | Working |
+| Yellow fill | Working; takes priority over completed and idle threads |
 | Red fill | Input needed, a failed thread, or work without sleep protection |
 | Green fill | Completed work |
-| Green outline | Idle |
-| Gray outline | Disconnected, stopped, stale status, or observe mode |
+| Green outline | All counted threads idle |
+| Gray outline | No counted threads, disconnected, stopped, stale status, or observe mode |
+
+Activity priority is red (failure/input needed), yellow (working), green fill
+(completed), then green outline (all idle).
+
+Any unanswered question or approval request makes the badge red, including
+nonblocking questions while work continues. Settled, archived, and deleted
+threads are excluded from input alerts. A thread can count as both working and
+waiting for you; sleep protection follows running work independently of alerts.
 
 The indicator reads the companion's local status; no additional pairing is
 needed. Reinstalling preserves its bar position. The original bar settings are

@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { addIndicatorToBar, installIndicator } from '../lib/indicator.mjs';
 import { ShellState } from '../lib/activity.mjs';
-import { snapshot, thread } from './fixtures.mjs';
+import { snapshot, thread, update } from './fixtures.mjs';
 
 const script = await readFile(new URL('../plugins/dms-t3-keep-awake/IndicatorState.js', import.meta.url), 'utf8');
 const ui = vm.createContext({}); vm.runInContext(script, ui);
@@ -19,11 +19,31 @@ const view = data => ui.snapshot(JSON.stringify(data), Date.now(), 5000);
 test('indicator mirrors Herdr priorities while exposing missing sleep protection', () => {
   assert.equal(view(value({ activeThreads: 1, held: true, threadStates: counts({ working: 1 }) })).state, 'working');
   assert.equal(view(value({ threadStates: counts({ working: 1, blocked: 1, done: 1 }) })).state, 'blocked');
-  assert.equal(view(value({ threadStates: counts({ done: 1, working: 1 }) })).state, 'done');
-  assert.equal(view(value()).state, 'idle');
+  assert.equal(view(value({ activeThreads: 1, held: true, threadStates: counts({ done: 1, working: 1 }) })).state, 'working');
+  assert.equal(view(value({ activeThreads: 1, held: true, threadStates: counts({ done: 1, working: 1, idle: 1 }) })).state, 'working');
+  assert.equal(view(value({ threadStates: counts({ done: 1 }) })).state, 'done');
+  assert.equal(view(value()).state, 'empty');
   assert.equal(view(value({ activeThreads: 1, held: false })).state, 'error');
   assert.equal(view(value({ connected: false })).state, 'unknown');
   assert.equal(view(value({ activeThreads: 1, observing: true })).state, 'unknown');
+});
+test('live roster stays yellow while work runs alongside completed and idle threads', () => {
+  const result = view(value({ activeThreads: 3, held: true, threadStates: counts({ working: 3, done: 28, idle: 72 }) }));
+  assert.equal(result.state, 'working');
+  assert.equal(result.filled, true);
+});
+test('green outline means all counted threads are idle', () => {
+  const idle = view(value({ threadStates: counts({ idle: 3 }) }));
+  assert.equal(idle.state, 'idle');
+  assert.equal(idle.filled, false);
+  assert.equal(view(value({ threadStates: counts({ idle: 1, done: 1 }) })).state, 'done');
+  const working = view(value({ activeThreads: 1, held: true, threadStates: counts({ idle: 1, working: 1 }) }));
+  assert.equal(working.state, 'working');
+  assert.equal(working.filled, true);
+  const empty = view(value());
+  assert.equal(empty.state, 'empty');
+  assert.equal(empty.filled, false);
+  assert.equal(view(value({ threadStates: null })).state, 'idle');
 });
 test('stale, malformed and invalid status never claims protection; old companion format works', () => {
   assert.equal(view(value({ updatedAt: '2000-01-01' })).available, false);
@@ -40,6 +60,34 @@ test('published thread counts distinguish input waits and omit settled or archiv
     thread('archived', { status: 'completed', archivedAt: '2020-01-01' }), thread('idle'),
   ]));
   assert.deepEqual(state.threadStates, counts({ working: 1, blocked: 1, done: 1, idle: 1 }));
+});
+test('unanswered requests stay red independently of running work and clear on answer', () => {
+  for (const kind of ['user_input', 'approval']) {
+    for (const blocking of [true, false]) {
+      for (const background of [false, true]) {
+        const state = new ShellState();
+        const pending = thread('question', { status: 'completed',
+          pendingRuntimeRequest: { kind, blocking },
+          pendingBackgroundTasks: background ? [{ taskId: 'command', kind: 'command', awaited: true }] : [] });
+        state.apply(snapshot([pending, thread('done', { status: 'completed' }), thread('idle')]));
+        assert.equal(state.activeCount, background ? 1 : 0);
+        assert.equal(state.threadStates.blocked, 1, JSON.stringify({ kind, blocking, background }));
+        assert.equal(state.threadStates.done, 1);
+        assert.equal(view(value({ activeThreads: state.activeCount, held: background, threadStates: state.threadStates })).state, 'blocked');
+        state.apply(update({ ...pending, pendingRuntimeRequest: null }, 2));
+        assert.equal(state.threadStates.blocked, 0);
+        assert.equal(view(value({ activeThreads: state.activeCount, held: background, threadStates: state.threadStates })).state, background ? 'working' : 'done');
+      }
+    }
+  }
+});
+test('settled, archived and deleted requests remain excluded from attention counts', () => {
+  for (const excluded of [{ settledAt: '2020-01-01' }, { settledOverride: 'settled' }, { archivedAt: '2020-01-01' }, { deletedAt: '2020-01-01' }]) {
+    const state = new ShellState();
+    state.apply(snapshot([thread('question', { status: 'completed', pendingRuntimeRequest: { kind: 'user_input', blocking: false }, ...excluded }), thread('done', { status: 'completed' })]));
+    assert.equal(state.threadStates.blocked, 0);
+    assert.equal(view(value({ threadStates: state.threadStates })).state, 'done');
+  }
 });
 test('bar insertion preserves existing widgets and does not duplicate the indicator', () => {
   const settings = { unrelated: 'keep', barConfigs: [{ enabled: true, rightWidgets: ['systemTray', { id: 'herdrAgents', enabled: false }, 'clock'] }] };

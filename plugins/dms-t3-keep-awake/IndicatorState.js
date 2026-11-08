@@ -26,15 +26,16 @@ function snapshot(text, now, staleMs) {
     counts = safeCounts;
     var protection = value.observing ? "Observe mode: sleep is not inhibited"
         : value.held ? "Sleep inhibitor held" : "Sleep inhibitor released";
-    var state = "idle";
-    var label = "T3 is idle";
+    var state = "empty";
+    var label = "No counted T3 threads";
     if (value.observing) { state = "unknown"; label = "Observe mode"; }
     else if (value.activeThreads > 0 && !value.held) { state = "error"; label = "Working without sleep protection"; }
     else if (!value.connected) { state = "unknown"; label = "Disconnected from T3"; }
     else if (counts.failed > 0) { state = "error"; label = "A T3 thread failed"; }
     else if (counts.blocked > 0) { state = "blocked"; label = "T3 needs your input"; }
-    else if (counts.done > 0) { state = "done"; label = "T3 work completed"; }
     else if (counts.working > 0) { state = "working"; label = "T3 is working"; }
+    else if (counts.done > 0) { state = "done"; label = "T3 work completed"; }
+    else if (counts.idle > 0 || legacy) { state = "idle"; label = "T3 is idle"; }
     return { state: state, label: label, protection: protection, counts: counts, legacy: legacy,
         available: value.connected, filled: ["working", "blocked", "done", "error"].indexOf(state) !== -1,
         detail: legacy ? "Upgrade the companion for waiting/completed thread counts." : "Archived and settled threads are excluded from idle/completed counts." };

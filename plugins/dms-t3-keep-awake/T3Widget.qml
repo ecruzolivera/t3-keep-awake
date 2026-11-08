@@ -14,7 +14,7 @@ PluginComponent {
         ? (palette?.color1 ?? Theme.error)
         : snapshot.state === "done" || snapshot.state === "idle"
         ? (palette?.color2 ?? Theme.success)
-        : snapshot.state === "working" ? (palette?.color3 ?? Theme.primary) : Theme.surfaceVariantText
+        : snapshot.state === "working" ? (palette?.color3 ?? (SessionData.isLightMode ? "#8c6d00" : "#ffda72")) : Theme.surfaceVariantText
 
     function triggerHoverPopout(widgetHostId) { /* Details remain click-only, like Herdr. */ }
     PluginGlobalVar {

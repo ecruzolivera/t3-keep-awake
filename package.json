@@ -1,6 +1,6 @@
 {
   "name": "t3-keep-awake",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Keep a Linux host awake while its local T3 Code agents work",
   "type": "module",
   "engines": { "node": ">=24" },
